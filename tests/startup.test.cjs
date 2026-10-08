@@ -10,6 +10,7 @@ const { once } = require('node:events');
 const root = path.resolve(__dirname, '..');
 const runner = path.join(root, 'startup.sh');
 const initializer = path.join(root, 'init.d/10-cloudcmd.cjs');
+const proxyInitializer = path.join(root, 'init.d/20-haproxy.sh');
 const finalScript = path.join(root, 'init.d/99-services.sh');
 const hash = (value) => createHash('sha512').update(value).digest('hex');
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -51,8 +52,10 @@ test('runner initializes credentials, clears ENV, execs the foreground holder, a
     fs.mkdirSync(init);
     fs.mkdirSync(bin);
     fs.copyFileSync(initializer, path.join(init, '10-cloudcmd.cjs'));
+    fs.copyFileSync(proxyInitializer, path.join(init, '20-haproxy.sh'));
     fs.copyFileSync(finalScript, path.join(init, '99-services.sh'));
     executable(path.join(bin, 'gritty'), '#!/bin/bash\nprintf /fixture/gritty\n');
+    executable(path.join(bin, 'haproxy'), '#!/bin/bash\n[[ "$*" == "-c -f /etc/haproxy/haproxy.cfg" ]]\n');
     const holder = path.join(dir, 'holder.cjs');
     fs.writeFileSync(holder, `const fs = require('node:fs');
         if (['USERNAME', 'PASSWORD', 'CLOUDCMD_USERNAME', 'CLOUDCMD_PASSWORD', 'cloudcmd_auth']
@@ -95,7 +98,8 @@ test('config uses public defaults, safely encodes overrides, preserves settings,
     assert.equal(config.username, 'admin');
     assert.equal(config.password, hash('admin'));
     assert.equal(config.auth, true);
-    assert.equal(config.port, 80);
+    assert.equal(config.port, 8081);
+    assert.equal(config.ip, '127.0.0.1');
     assert.equal(config.root, '/workspace');
     assert.equal(config.terminal, true);
     assert.equal(config.configDialog, false);
@@ -137,4 +141,20 @@ test('config uses public defaults, safely encodes overrides, preserves settings,
         assert.equal(bad.stderr.includes('fixture'), false);
         assert.equal(fs.readFileSync(customFile, 'utf8'), data);
     }
+});
+
+test('invalid HAProxy config stops ordered startup before the foreground holder', (t) => {
+    const dir = temp(t);
+    const bin = path.join(dir, 'bin');
+    const init = path.join(dir, 'init');
+    fs.mkdirSync(bin);
+    fs.mkdirSync(init);
+    fs.copyFileSync(proxyInitializer, path.join(init, '20-haproxy.sh'));
+    fs.copyFileSync(finalScript, path.join(init, '99-services.sh'));
+    executable(path.join(bin, 'haproxy'), '#!/bin/bash\nexit 23\n');
+    executable(path.join(bin, 'pm2-runtime'), '#!/bin/bash\ntouch "$HOME/started"\n');
+    assert.equal(spawnSync(runner, [init], { env: {
+        ...environment(dir), PATH: `${bin}:${process.env.PATH}`,
+    } }).status, 23);
+    assert.equal(fs.existsSync(path.join(dir, 'started')), false);
 });

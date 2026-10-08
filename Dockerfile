@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     bash \
     git \
     bubblewrap \
+    haproxy \
  && mkdir -p /etc/apt/keyrings \
  && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
     | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
@@ -38,6 +39,7 @@ WORKDIR /workspace
 COPY startup.sh /usr/local/bin/codex-startup
 COPY init.d/ /etc/codex-init.d/
 COPY ecosystem.config.js /usr/local/lib/codex-docker/ecosystem.config.js
+COPY haproxy.cfg /etc/haproxy/haproxy.cfg
 RUN chmod +x /usr/local/bin/codex-startup /etc/codex-init.d/*
 
 EXPOSE 22 80 3000 5000 8000 9000 9001 9002 9003 9004 9005 9006 9007 9008 9009
